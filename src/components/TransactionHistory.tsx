@@ -5,8 +5,8 @@ import { useLanguage } from '../context/LanguageContext'
 import { tr, t } from '../i18n/translations'
 import type { TransactionItem } from '../services/paymentService'
 
-const STATUS_VARIANT: Record<string, 'success' | 'warning' | 'default'> = {
-  COMPLETED: 'success', PENDING: 'warning', FAILED: 'default', REFUNDED: 'default', CANCELLED: 'default',
+const STATUS_VARIANT: Record<string, 'success' | 'warning' | 'neutral'> = {
+  COMPLETED: 'success', PENDING: 'warning', FAILED: 'neutral', REFUNDED: 'neutral', CANCELLED: 'neutral',
 }
 
 export default function TransactionHistory({ transactions }: { transactions: TransactionItem[] }) {

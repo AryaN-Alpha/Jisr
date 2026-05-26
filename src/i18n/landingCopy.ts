@@ -1,7 +1,39 @@
 import type { Language } from '../context/LanguageContext'
 
+export type LandingFeature = {
+  title: string
+  description: string
+  titleAr?: string
+  descriptionAr?: string
+}
+
+export type LandingTestimonial = {
+  name: string
+  nameAr?: string | null
+  role: string
+  roleAr?: string | null
+  quote: string
+  quoteAr?: string | null
+}
+
+export type LandingAudience = {
+  title: string
+  blurb: string
+  href: string
+  titleAr?: string
+  blurbAr?: string
+}
+
+export type LandingCopy = {
+  features: LandingFeature[]
+  steps: LandingFeature[]
+  testimonials: LandingTestimonial[]
+  audiences: LandingAudience[]
+  [key: string]: any
+}
+
 /** Marketing / landing strings (EN + AR) */
-export function landingCopy(language: Language) {
+export function landingCopy(language: Language): LandingCopy {
   const ar = language === 'ar'
   if (ar) {
     return {

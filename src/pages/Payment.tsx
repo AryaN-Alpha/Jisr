@@ -302,7 +302,7 @@ export default function Payment() {
                             {isAr ? p.nameAr : p.name}
                           </span>
                           {isCurrent && <Badge variant="success" size="sm">{t(tr.payment.current, language)}</Badge>}
-                          {isLowerTier && !isCurrent && hasActiveSub && <Badge variant="default" size="sm">{isAr ? 'غير متاح' : 'N/A'}</Badge>}
+                          {isLowerTier && !isCurrent && hasActiveSub && <Badge variant="neutral" size="sm">{isAr ? 'غير متاح' : 'N/A'}</Badge>}
                         </div>
                         <div className={`mt-0.5 text-xs ${p.id === 'family-plan' && !isCurrent ? 'text-white/70' : 'text-ink-500 dark:text-ink-400'}`}>
                           {isAr ? p.descriptionAr : p.description}

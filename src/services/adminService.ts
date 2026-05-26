@@ -35,6 +35,7 @@ export interface MediaAsset {
 export const MEDIA_CATEGORIES = [
   'general', 'emotions', 'people', 'places', 'food',
   'activities', 'objects', 'animals', 'nature', 'school',
+  'symbols', 'photos', 'icons', 'gifs',
 ] as const
 export type MediaCategory = typeof MEDIA_CATEGORIES[number]
 
