@@ -27,6 +27,8 @@ const SESSION_EPOCH_KEY = 'jisr_session_epoch'
 export const AUTH_LOGIN_EVENT = 'jisr:auth-login'
 export const AUTH_LOGOUT_EVENT = 'jisr:auth-logout'
 export const CHILDREN_CHANGED_EVENT = 'jisr:children-changed'
+/** Fired when auth session changes — all data views should reload. */
+export const DATA_INVALIDATE_EVENT = 'jisr:data-invalidate'
 
 const PUBLIC_ROUTES = new Set([
   '/',
@@ -54,6 +56,7 @@ const bumpSessionEpoch = (): void => {
 export const notifyChildrenChanged = (): void => {
   if (!isBrowser) return
   window.dispatchEvent(new CustomEvent(CHILDREN_CHANGED_EVENT))
+  window.dispatchEvent(new CustomEvent(DATA_INVALIDATE_EVENT))
 }
 
 const getAuthToken = (): string | null =>
@@ -65,6 +68,14 @@ export const saveTokens = (accessToken: string, refreshToken: string): void => {
   window.localStorage.setItem(REFRESH_TOKEN_KEY, refreshToken)
 }
 
+/** Persist tokens and notify all contexts/pages that a new session is active. */
+export const establishAuthSession = (accessToken: string, refreshToken: string): void => {
+  saveTokens(accessToken, refreshToken)
+  if (!isBrowser) return
+  window.dispatchEvent(new CustomEvent(AUTH_LOGIN_EVENT))
+  window.dispatchEvent(new CustomEvent(DATA_INVALIDATE_EVENT))
+}
+
 export const clearTokens = (): void => {
   if (!isBrowser) return
   window.localStorage.removeItem(ACCESS_TOKEN_KEY)
@@ -72,6 +83,15 @@ export const clearTokens = (): void => {
   window.localStorage.removeItem('jisr_child_session')
   window.localStorage.removeItem('jisr_active_child_id')
   bumpSessionEpoch()
+  refreshInFlight = null
+}
+
+/** Clear stored credentials and notify React contexts to drop in-memory user state. */
+export const resetAuthSession = (): void => {
+  clearTokens()
+  if (!isBrowser) return
+  window.dispatchEvent(new CustomEvent(AUTH_LOGOUT_EVENT))
+  window.dispatchEvent(new CustomEvent(DATA_INVALIDATE_EVENT))
 }
 
 const redirectToSignIn = () => {
@@ -87,47 +107,60 @@ const redirectToSignIn = () => {
 
 let refreshInFlight: Promise<string | null> | null = null
 
+const runRefreshAccessToken = async (epochAtStart: number): Promise<string | null> => {
+  const refreshToken = window.localStorage.getItem(REFRESH_TOKEN_KEY)
+  if (!refreshToken) return null
+
+  try {
+    const response = await fetch(getApiUrl('auth/refresh'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refreshToken }),
+      cache: 'no-store',
+    })
+    if (!response.ok) {
+      clearTokens()
+      return null
+    }
+    const data: ApiResponse<{ accessToken: string }> = await response.json()
+    if (getSessionEpoch() !== epochAtStart) {
+      return null
+    }
+    if (data.status === 'success' && data.data?.accessToken) {
+      window.localStorage.setItem(ACCESS_TOKEN_KEY, data.data.accessToken)
+      return data.data.accessToken
+    }
+    clearTokens()
+    return null
+  } catch (err) {
+    console.error('Failed to refresh access token:', err)
+    clearTokens()
+    return null
+  }
+}
+
 const refreshAccessToken = async (): Promise<string | null> => {
   if (!isBrowser) return null
-  if (refreshInFlight) return refreshInFlight
-
   const epochAtStart = getSessionEpoch()
 
-  refreshInFlight = (async () => {
-    const refreshToken = window.localStorage.getItem(REFRESH_TOKEN_KEY)
-    if (!refreshToken) return null
-
-    try {
-      const response = await fetch(getApiUrl('auth/refresh'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ refreshToken }),
-      })
-      if (!response.ok) {
-        clearTokens()
-        return null
-      }
-      const data: ApiResponse<{ accessToken: string }> = await response.json()
-      // Session was cleared/changed while refresh was in flight — discard result
-      if (getSessionEpoch() !== epochAtStart) {
-        return null
-      }
-      if (data.status === 'success' && data.data?.accessToken) {
-        window.localStorage.setItem(ACCESS_TOKEN_KEY, data.data.accessToken)
-        return data.data.accessToken
-      }
-      clearTokens()
-      return null
-    } catch (err) {
-      console.error('Failed to refresh access token:', err)
-      clearTokens()
-      return null
-    } finally {
-      refreshInFlight = null
+  if (refreshInFlight) {
+    await refreshInFlight
+    if (getSessionEpoch() !== epochAtStart) {
+      return refreshAccessToken()
     }
-  })()
+    return getAuthToken()
+  }
 
-  return refreshInFlight
+  refreshInFlight = runRefreshAccessToken(epochAtStart)
+  try {
+    const token = await refreshInFlight
+    if (getSessionEpoch() !== epochAtStart) {
+      return refreshAccessToken()
+    }
+    return token
+  } finally {
+    refreshInFlight = null
+  }
 }
 
 interface RequestOptions extends RequestInit {
@@ -151,10 +184,15 @@ export const apiRequest = async <T = any>(
     return merged
   }
 
-  const url = getApiUrl(endpoint)
+  const method = (rest.method ?? 'GET').toUpperCase()
+  const baseUrl = getApiUrl(endpoint)
+  const url =
+    method === 'GET'
+      ? `${baseUrl}${baseUrl.includes('?') ? '&' : '?'}_t=${Date.now()}`
+      : baseUrl
 
   const doFetch = async (overrideToken?: string | null) =>
-    fetch(url, { ...rest, headers: buildHeaders(overrideToken) })
+    fetch(url, { ...rest, cache: 'no-store', headers: buildHeaders(overrideToken) })
 
   try {
     let token = getAuthToken()

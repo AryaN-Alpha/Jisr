@@ -1,6 +1,6 @@
-import { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react'
+import { createContext, useContext, useState, useEffect, useCallback, useRef, ReactNode } from 'react'
 import { childService, Child } from '../services/childService'
-import { AUTH_LOGIN_EVENT, AUTH_LOGOUT_EVENT, CHILDREN_CHANGED_EVENT } from '../utils/api'
+import { AUTH_LOGIN_EVENT, AUTH_LOGOUT_EVENT, CHILDREN_CHANGED_EVENT, DATA_INVALIDATE_EVENT } from '../utils/api'
 import { authService } from '../services/authService'
 
 interface ChildContextType {
@@ -24,6 +24,7 @@ export function ChildProvider({ children: reactChildren }: { children: ReactNode
   const [childList, setChildList] = useState<Child[]>([])
   const [activeChild, setActiveChild] = useState<Child | null>(null)
   const [loading, setLoading] = useState(true)
+  const refreshSeqRef = useRef(0)
 
   const clearChildren = useCallback(() => {
     setChildList([])
@@ -37,9 +38,12 @@ export function ChildProvider({ children: reactChildren }: { children: ReactNode
       setLoading(false)
       return
     }
+    const seq = ++refreshSeqRef.current
     try {
       setLoading(true)
       const data = await childService.getChildren()
+      if (seq !== refreshSeqRef.current) return
+
       const list = Array.isArray(data) ? data : []
       setChildList(list)
 
@@ -56,11 +60,12 @@ export function ChildProvider({ children: reactChildren }: { children: ReactNode
         localStorage.removeItem(ACTIVE_CHILD_KEY)
       }
     } catch (err) {
+      if (seq !== refreshSeqRef.current) return
       console.error('ChildContext: failed to load children', err)
       setChildList([])
       setActiveChild(null)
     } finally {
-      setLoading(false)
+      if (seq === refreshSeqRef.current) setLoading(false)
     }
   }, [clearChildren])
 
@@ -70,8 +75,15 @@ export function ChildProvider({ children: reactChildren }: { children: ReactNode
 
   useEffect(() => {
     const onChildrenChanged = () => void refresh()
-    const onLogout = () => clearChildren()
-    const onLogin = () => void refresh()
+    const onDataInvalidate = () => void refresh()
+    const onLogout = () => {
+      refreshSeqRef.current += 1
+      clearChildren()
+    }
+    const onLogin = () => {
+      refreshSeqRef.current += 1
+      void refresh()
+    }
     const onStorage = (e: StorageEvent) => {
       if (e.key === 'accessToken' || e.key === 'refreshToken' || e.key === 'jisr_session_epoch') {
         void refresh()
@@ -79,11 +91,13 @@ export function ChildProvider({ children: reactChildren }: { children: ReactNode
     }
 
     window.addEventListener(CHILDREN_CHANGED_EVENT, onChildrenChanged)
+    window.addEventListener(DATA_INVALIDATE_EVENT, onDataInvalidate)
     window.addEventListener(AUTH_LOGOUT_EVENT, onLogout)
     window.addEventListener(AUTH_LOGIN_EVENT, onLogin)
     window.addEventListener('storage', onStorage)
     return () => {
       window.removeEventListener(CHILDREN_CHANGED_EVENT, onChildrenChanged)
+      window.removeEventListener(DATA_INVALIDATE_EVENT, onDataInvalidate)
       window.removeEventListener(AUTH_LOGOUT_EVENT, onLogout)
       window.removeEventListener(AUTH_LOGIN_EVENT, onLogin)
       window.removeEventListener('storage', onStorage)

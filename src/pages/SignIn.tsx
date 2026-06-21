@@ -66,8 +66,8 @@ export default function SignIn() {
       let dest = '/dashboard'
       if (role === 'ADMIN') dest = '/admin/dashboard'
       else if (accountType === 'child') dest = '/child/aac'
-      await refetch() // update AuthContext with the new user before navigating
-      window.setTimeout(() => navigate(dest), 400)
+      await refetch()
+      navigate(dest, { replace: true })
     } catch (err: any) {
       setSubmitting(false)
       showToast(err?.message || 'Invalid credentials. Please try again.', 'error')

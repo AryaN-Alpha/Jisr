@@ -1,4 +1,4 @@
-import { createContext, ReactNode, useCallback, useContext, useEffect, useState } from 'react'
+import { createContext, ReactNode, useCallback, useContext, useEffect, useRef, useState } from 'react'
 import { authService, User } from '../services/authService'
 import { AUTH_LOGIN_EVENT, AUTH_LOGOUT_EVENT } from '../utils/api'
 
@@ -21,8 +21,10 @@ const AuthContext = createContext<AuthContextValue>({
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
   const [loading, setLoading] = useState(true)
+  const loadSeqRef = useRef(0)
 
   const load = useCallback(async () => {
+    const seq = ++loadSeqRef.current
     if (!authService.isAuthenticated()) {
       setUser(null)
       setLoading(false)
@@ -31,11 +33,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setLoading(true)
     try {
       const u = await authService.getCurrentUser()
+      if (seq !== loadSeqRef.current) return
       setUser(u)
     } catch {
+      if (seq !== loadSeqRef.current) return
       setUser(null)
     } finally {
-      setLoading(false)
+      if (seq === loadSeqRef.current) setLoading(false)
     }
   }, [])
 
@@ -47,14 +51,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const onLogin = () => {
       setUser(null)
+      setLoading(true)
       void load()
     }
     const onLogout = () => {
+      loadSeqRef.current += 1
       setUser(null)
       setLoading(false)
     }
     const onStorage = (e: StorageEvent) => {
       if (e.key === 'accessToken' || e.key === 'refreshToken' || e.key === 'jisr_session_epoch') {
+        loadSeqRef.current += 1
         void load()
       }
     }

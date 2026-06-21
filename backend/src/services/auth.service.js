@@ -14,7 +14,8 @@ function normalizeRecoveryAnswer(answer) {
 }
 
 const register = async (userData) => {
-  const { name, email, password, accountType, recoveryQuestion, recoveryAnswer } = userData;
+  const { name, password, accountType, recoveryQuestion, recoveryAnswer } = userData;
+  const email = String(userData.email || '').trim().toLowerCase();
 
   // Check if user exists
   const existingUser = await prisma.user.findUnique({
@@ -78,9 +79,11 @@ const register = async (userData) => {
  * Login user
  */
 const login = async (email, password) => {
+  const normalizedEmail = String(email || '').trim().toLowerCase();
+
   // Find user
   const user = await prisma.user.findUnique({
-    where: { email },
+    where: { email: normalizedEmail },
   });
 
   if (!user) {
@@ -146,8 +149,12 @@ const refreshToken = async (refreshToken) => {
     throw new AppError('Invalid or expired refresh token', 401);
   }
 
-  // Generate new access token
-  const accessToken = generateAccessToken(decoded.userId);
+  if (decoded.userId !== tokenRecord.userId) {
+    throw new AppError('Invalid refresh token', 401);
+  }
+
+  // Always derive the user from the DB record, not JWT payload alone
+  const accessToken = generateAccessToken(tokenRecord.userId);
 
   return {
     accessToken,

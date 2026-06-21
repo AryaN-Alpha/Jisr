@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import {
@@ -19,6 +19,7 @@ import Skeleton from '../components/Skeleton'
 import { progressService, ProgressAnalytics } from '../services/progressService'
 import { childService, Child } from '../services/childService'
 import { useLanguage } from '../context/LanguageContext'
+import { useAuth } from '../context/AuthContext'
 
 type Range = 'week' | 'month' | 'year'
 
@@ -31,6 +32,7 @@ const toneCls = {
 
 export default function Progress() {
   const { language } = useLanguage()
+  const { user } = useAuth()
   const [searchParams] = useSearchParams()
   const childId = searchParams.get('childId') || undefined
   const [range, setRange] = useState<Range>('week')
@@ -38,33 +40,41 @@ export default function Progress() {
   const [child, setChild] = useState<Child | null>(null)
   const [loading, setLoading] = useState(true)
   const [timelinePage, setTimelinePage] = useState(1)
+  const loadSeqRef = useRef(0)
   const ITEMS_PER_PAGE = 5
 
   useEffect(() => {
-    let mounted = true
+    if (!user) {
+      loadSeqRef.current += 1
+      setData(null)
+      setChild(null)
+      setLoading(false)
+      return
+    }
+
+    const seq = ++loadSeqRef.current
     const load = async () => {
       try {
         setLoading(true)
         setTimelinePage(1)
         const [result, childData] = await Promise.all([
           progressService.getProgress(range, childId),
-          childId ? childService.getChild(childId).catch(() => null) : Promise.resolve(null)
+          childId ? childService.getChild(childId).catch(() => null) : Promise.resolve(null),
         ])
-        if (mounted) {
-          setData(result)
-          setChild(childData)
-        }
+        if (seq !== loadSeqRef.current) return
+        setData(result)
+        setChild(childData)
       } catch (err) {
         console.error('Failed to load progress:', err)
       } finally {
-        if (mounted) setLoading(false)
+        if (seq === loadSeqRef.current) setLoading(false)
       }
     }
-    load()
+    void load()
     return () => {
-      mounted = false
+      loadSeqRef.current += 1
     }
-  }, [range, childId])
+  }, [user?.id, range, childId])
 
   return (
     <DashboardLayout>

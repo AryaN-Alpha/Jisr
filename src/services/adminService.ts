@@ -1,4 +1,4 @@
-import { api } from '../utils/api'
+import { api, notifyChildrenChanged } from '../utils/api'
 import { API_ENDPOINTS } from '../config/api'
 
 /* ------------------------------ Types ----------------------------------- */
@@ -422,6 +422,7 @@ class AdminService {
   async updateChild(id: string, payload: { name?: string; username?: string; age?: number | null; pin?: string }): Promise<any> {
     const r = await api.put<any>(API_ENDPOINTS.ADMIN.CHILD(id), payload)
     if (!r.data) throw new Error('Failed to update child')
+    notifyChildrenChanged()
     return r.data
   }
 

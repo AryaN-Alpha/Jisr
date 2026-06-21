@@ -45,6 +45,7 @@ import { UserPreferencesProvider } from './context/UserPreferencesContext'
 import { ChildProvider } from './context/ChildContext'
 import { AuthProvider, useAuth } from './context/AuthContext'
 import { LanguageProvider } from './context/LanguageContext'
+import { useAuthSessionKey } from './hooks/useAuthSessionKey'
 import type { SiteSettings } from './services/adminService'
 
 function MaintenancePage({ settings }: { settings: SiteSettings }) {
@@ -81,6 +82,7 @@ function AppRoutes() {
   const location = useLocation()
   const { settings } = useSiteSettings()
   const { user } = useAuth()
+  const sessionKey = useAuthSessionKey()
 
   const isAdminPath = location.pathname.startsWith('/admin')
   const isChildPath = location.pathname.startsWith('/child')
@@ -109,7 +111,7 @@ function AppRoutes() {
   return (
     <ErrorBoundary>
       <AnimatePresence>
-        <Routes location={location} key={location.pathname}>
+        <Routes location={location} key={`${sessionKey}-${location.pathname}`}>
           {/* Public Routes */}
           <Route path="/" element={<LandingPage />} />
           <Route path="/signin" element={<SignIn />} />

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import {
@@ -21,18 +21,19 @@ import PageHeader from '../components/PageHeader'
 import Skeleton from '../components/Skeleton'
 import Toast from '../components/Toast'
 import { childService, Child } from '../services/childService'
-import { CHILDREN_CHANGED_EVENT } from '../utils/api'
 import { userService } from '../services/userService'
 import { progressService, ProgressAnalytics } from '../services/progressService'
 import { useLanguage } from '../context/LanguageContext'
+import { useChild } from '../context/ChildContext'
 
 export default function Family() {
   const { language } = useLanguage()
   const navigate = useNavigate()
+  const { children, loading: childrenLoading, refresh: refreshChildren } = useChild()
   const [open, setOpen] = useState(false)
-  const [children, setChildren] = useState<Child[]>([])
   const [childProgress, setChildProgress] = useState<Map<string, ProgressAnalytics>>(new Map())
-  const [loading, setLoading] = useState(true)
+  const [progressLoading, setProgressLoading] = useState(true)
+  const progressSeqRef = useRef(0)
   const [error, setError] = useState<string | null>(null)
   const [creating, setCreating] = useState(false)
   const [form, setForm] = useState({
@@ -67,18 +68,17 @@ export default function Family() {
     setTimeout(() => setToast((prev) => ({ ...prev, visible: false })), 5000)
   }
 
-  const refresh = async () => {
+  const loadProgress = useCallback(async (childList: Child[]) => {
+    const seq = ++progressSeqRef.current
     try {
-      setLoading(true)
+      setProgressLoading(true)
       setError(null)
-      const data = await childService.getChildren()
-      const validChildren = Array.isArray(data) ? data : []
-      setChildren(validChildren)
-
-      // Fetch progress for every child in parallel; failures are silenced per-child
+      const validChildren = childList.filter((c) => c && c.id && c.name)
       const results = await Promise.allSettled(
         validChildren.map((c) => progressService.getProgress('week', c.id))
       )
+      if (seq !== progressSeqRef.current) return
+
       const map = new Map<string, ProgressAnalytics>()
       results.forEach((result, idx) => {
         if (result.status === 'fulfilled') {
@@ -87,20 +87,25 @@ export default function Family() {
       })
       setChildProgress(map)
     } catch (err: any) {
+      if (seq !== progressSeqRef.current) return
       console.error(err)
       setError(err?.message || 'Failed to load family members')
-      setChildren([])
+      setChildProgress(new Map())
     } finally {
-      setLoading(false)
+      if (seq === progressSeqRef.current) setProgressLoading(false)
     }
-  }
+  }, [])
 
   useEffect(() => {
-    void refresh()
-    const onChildrenChanged = () => void refresh()
-    window.addEventListener(CHILDREN_CHANGED_EVENT, onChildrenChanged)
-    return () => window.removeEventListener(CHILDREN_CHANGED_EVENT, onChildrenChanged)
-  }, [])
+    if (childrenLoading) return
+    void loadProgress(children)
+  }, [children, childrenLoading, loadProgress])
+
+  const loading = childrenLoading || progressLoading
+
+  const handleRetry = () => {
+    void refreshChildren()
+  }
 
   const initials = (name: string) => {
     if (!name) return 'U'
@@ -150,13 +155,12 @@ export default function Family() {
         }
       }
 
-      const newChild = await childService.createChild({
+      await childService.createChild({
         name: form.name.trim(),
         age: form.age ? parseInt(form.age, 10) : undefined,
         username: form.username.trim() || undefined,
         pin: form.pin || undefined,
       })
-      setChildren((prev) => [...prev, newChild])
       setOpen(false)
       setForm({ name: '', age: '', relationship: 'child', email: '', username: '', pin: '' })
       showToast('Child added successfully!', 'success', 'Child created')
@@ -193,7 +197,6 @@ export default function Family() {
         username: editForm.username.trim() || undefined,
         pin: editForm.pin || undefined,
       })
-      await refresh()
       setEditOpen(false)
       setEditingChild(null)
       showToast('Child updated successfully!', 'success', 'Child updated')
@@ -251,7 +254,7 @@ export default function Family() {
                 <h3 className="text-sm font-semibold text-accent-900 dark:text-accent-300">Couldn't load children</h3>
                 <p className="text-sm text-accent-700 dark:text-accent-400">{error}</p>
               </div>
-              <Button variant="outline" size="sm" onClick={refresh}>
+              <Button variant="outline" size="sm" onClick={handleRetry}>
                 Retry
               </Button>
             </div>

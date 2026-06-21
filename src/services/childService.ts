@@ -1,4 +1,4 @@
-import { api, saveTokens, notifyChildrenChanged, clearTokens, AUTH_LOGIN_EVENT } from '../utils/api';
+import { api, establishAuthSession, notifyChildrenChanged, resetAuthSession } from '../utils/api';
 import { API_ENDPOINTS } from '../config/api';
 
 /**
@@ -119,14 +119,11 @@ class ChildService {
  * Child login (independent, no parent session needed)
  */
 export async function childLogin(username: string, pin: string): Promise<ChildLoginResponse> {
-  clearTokens();
-  const response = await api.post<ChildLoginResponse>(API_ENDPOINTS.AUTH.CHILD_LOGIN, { username, pin });
+  resetAuthSession();
+  const response = await api.post<ChildLoginResponse>(API_ENDPOINTS.AUTH.CHILD_LOGIN, { username, pin }, { requireAuth: false });
 
   if (response.status === 'success' && response.data) {
-    saveTokens(response.data.accessToken, response.data.refreshToken);
-    if (typeof window !== 'undefined') {
-      window.dispatchEvent(new CustomEvent(AUTH_LOGIN_EVENT));
-    }
+    establishAuthSession(response.data.accessToken, response.data.refreshToken);
     return response.data;
   }
 

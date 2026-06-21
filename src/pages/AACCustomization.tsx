@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useSearchParams, Link } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import {
@@ -20,8 +20,6 @@ import { VocabularyItem, AACSettings, VocabularyLevel, Language, VocabularyCateg
 import { vocabularyService } from '../services/vocabularyService'
 import { settingsService, AACSettings as BackendAACSettings } from '../services/settingsService'
 import { analyticsService } from '../services/analyticsService'
-import { childService } from '../services/childService'
-import { CHILDREN_CHANGED_EVENT } from '../utils/api'
 import { aacService } from '../services/aacService'
 import { publicMediaService, MediaAsset, MEDIA_CATEGORIES } from '../services/adminService'
 import Card from '../components/Card'
@@ -31,6 +29,7 @@ import Modal from '../components/Modal'
 import Toast from '../components/Toast'
 import { categoryLabels, levelLabels } from '../data/vocabularyData'
 import { useLanguage } from '../context/LanguageContext'
+import { useChild } from '../context/ChildContext'
 import { tr, t } from '../i18n/translations'
 
 function parseVocabText(text: unknown): { en: string; ar: string } {
@@ -57,6 +56,8 @@ function parseVocabText(text: unknown): { en: string; ar: string } {
 export default function AACCustomization() {
   const { language } = useLanguage()
   const isAr = language === 'ar'
+  const { children, loading: childrenLoading } = useChild()
+  const loadDataSeqRef = useRef(0)
   const [searchParams, setSearchParams] = useSearchParams()
   const tabParam = searchParams.get('tab') as 'vocabulary' | 'settings' | 'analytics' | 'locations' | null
   const [activeTab, setActiveTab] = useState<'vocabulary' | 'settings' | 'analytics' | 'locations'>(
@@ -78,16 +79,15 @@ export default function AACCustomization() {
   const [settings, setSettings] = useState<AACSettings | null>(null)
   const [analytics, setAnalytics] = useState<any>(null)
   const [locations, setLocations] = useState<Location[]>([])
-  const [loading, setLoading] = useState(true)
+  const [dataLoading, setDataLoading] = useState(false)
   const [showAddModal, setShowAddModal] = useState(false)
   const [showLocationModal, setShowLocationModal] = useState(false)
   const [editingItem, setEditingItem] = useState<VocabularyItem | null>(null)
   const [editingLocation, setEditingLocation] = useState<Location | null>(null)
   const [deletingLocation, setDeletingLocation] = useState<string | null>(null)
   const [childId, setChildId] = useState<string | null>(null)
-  const [children, setChildren] = useState<any[]>([])
 
-  // Toast state
+  const loading = childrenLoading || dataLoading
   const [toast, setToast] = useState<{
     message: string
     type: 'success' | 'error' | 'info' | 'warning'
@@ -104,49 +104,25 @@ export default function AACCustomization() {
     setTimeout(() => setToast((prev) => ({ ...prev, visible: false })), 5000)
   }
 
-  // Load children first, then select first child (avoid infinite loading when there are none)
+  // Sync selected child from shared context
   useEffect(() => {
-    let cancelled = false
-    const loadChildren = async () => {
-      try {
-        setLoading(true)
-        const childrenData = await childService.getChildren()
-        if (cancelled) return
-        setChildren(childrenData)
-        if (childrenData.length > 0) {
-          setChildId((prev) => prev ?? childrenData[0].id)
-        } else {
-          setLoading(false)
-        }
-      } catch (error) {
-        console.error('Failed to load children:', error)
-        if (!cancelled) setLoading(false)
-      }
-    }
-    void loadChildren()
-
-    const onChildrenChanged = () => void loadChildren()
-    window.addEventListener(CHILDREN_CHANGED_EVENT, onChildrenChanged)
-    return () => {
-      cancelled = true
-      window.removeEventListener(CHILDREN_CHANGED_EVENT, onChildrenChanged)
-    }
-  }, [])
-
-  useEffect(() => {
-    if (childId) {
-      loadData()
-    }
-  }, [childId])
-
-  const loadData = async () => {
-    if (!childId) {
-      setLoading(false)
+    if (childrenLoading) return
+    if (children.length === 0) {
+      setChildId(null)
       return
     }
+    setChildId((prev) => {
+      if (prev && children.some((c) => c.id === prev)) return prev
+      return children[0].id
+    })
+  }, [children, childrenLoading])
 
+  const loadData = useCallback(async () => {
+    if (!childId) return
+
+    const seq = ++loadDataSeqRef.current
     try {
-      setLoading(true)
+      setDataLoading(true)
       const [vocab, childVocab, settingsData, analyticsData, locationsData] = await Promise.all([
         vocabularyService.getAllVocabulary().catch(() => []),
         vocabularyService.getChildVocabulary(childId).catch(() => []),
@@ -154,6 +130,7 @@ export default function AACCustomization() {
         analyticsService.getAnalytics(childId).catch(() => null),
         aacService.getLocations(childId).catch(() => [])
       ])
+      if (seq !== loadDataSeqRef.current) return
 
       // Map backend vocabulary to frontend format
       const mappedVocab = vocab.map(v => ({
@@ -245,15 +222,21 @@ export default function AACCustomization() {
       // Map locations from DB
       setLocations(locationsData || [])
     } catch (error) {
+      if (seq !== loadDataSeqRef.current) return
       console.error('Failed to load data:', error)
       setLocations([])
-      // Set empty arrays on error to prevent infinite loading
       setVocabulary([])
       setChildVocabulary([])
     } finally {
-      setLoading(false)
+      if (seq === loadDataSeqRef.current) setDataLoading(false)
     }
-  }
+  }, [childId])
+
+  useEffect(() => {
+    if (childId) {
+      void loadData()
+    }
+  }, [childId, loadData])
 
   const handleSaveSettings = async () => {
     if (!settings || !childId) return

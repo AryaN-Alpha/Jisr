@@ -1,4 +1,4 @@
-import { api, saveTokens, clearTokens, AUTH_LOGIN_EVENT, AUTH_LOGOUT_EVENT } from '../utils/api';
+import { api, establishAuthSession, resetAuthSession } from '../utils/api';
 import { API_ENDPOINTS } from '../config/api';
 
 /**
@@ -46,16 +46,7 @@ export interface AuthResponse {
 }
 
 function clearSessionBeforeLogin(): void {
-  clearTokens();
-  if (typeof window !== 'undefined') {
-    window.dispatchEvent(new CustomEvent(AUTH_LOGOUT_EVENT));
-  }
-}
-
-function dispatchLoginEvent(): void {
-  if (typeof window !== 'undefined') {
-    window.dispatchEvent(new CustomEvent(AUTH_LOGIN_EVENT));
-  }
+  resetAuthSession()
 }
 
 /**
@@ -75,8 +66,7 @@ class AuthService {
     );
 
     if (response.status === 'success' && response.data) {
-      saveTokens(response.data.accessToken, response.data.refreshToken);
-      dispatchLoginEvent();
+      establishAuthSession(response.data.accessToken, response.data.refreshToken);
       return response.data;
     }
 
@@ -96,8 +86,7 @@ class AuthService {
     );
 
     if (response.status === 'success' && response.data) {
-      saveTokens(response.data.accessToken, response.data.refreshToken);
-      dispatchLoginEvent();
+      establishAuthSession(response.data.accessToken, response.data.refreshToken);
       return response.data;
     }
 
@@ -118,10 +107,9 @@ class AuthService {
       }
     }
 
-    clearTokens();
+    resetAuthSession();
 
     if (typeof window !== 'undefined') {
-      window.dispatchEvent(new CustomEvent(AUTH_LOGOUT_EVENT));
       if (options?.hardReload === false) return
       const path = window.location.pathname
       const dest =

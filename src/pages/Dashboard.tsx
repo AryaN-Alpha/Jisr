@@ -16,7 +16,7 @@ import {
   Calendar,
   Baby,
 } from 'lucide-react'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import DashboardLayout from '../layouts/DashboardLayout'
 import Card from '../components/Card'
 import Button from '../components/Button'
@@ -31,7 +31,17 @@ import {
   Activity as ActivityLog,
 } from '../services/dashboardService'
 import { useLanguage } from '../context/LanguageContext'
+import { useAuth } from '../context/AuthContext'
 import { tr, t } from '../i18n/translations'
+import { AUTH_LOGIN_EVENT, CHILDREN_CHANGED_EVENT, DATA_INVALIDATE_EVENT } from '../utils/api'
+
+const EMPTY_STATS: DashboardStats = {
+  totalCards: 0,
+  sentencesToday: 0,
+  mostUsedCard: 'None',
+  communicationStreak: 0,
+  totalChildren: 0,
+}
 
 /* Tone maps include both light and dark mode classes */
 const tones = {
@@ -57,21 +67,27 @@ const QUICK_TIPS = {
 
 export default function Dashboard() {
   const { language, isArabic } = useLanguage()
-  const [stats, setStats] = useState<DashboardStats>({
-    totalCards: 0,
-    sentencesToday: 0,
-    mostUsedCard: 'None',
-    communicationStreak: 0,
-    totalChildren: 0,
-  })
+  const { user } = useAuth()
+  const [stats, setStats] = useState<DashboardStats>(EMPTY_STATS)
   const [notifications, setNotifications] = useState<Notification[]>([])
   const [activity, setActivity] = useState<ActivityLog[]>([])
   const [unread, setUnread] = useState(0)
   const [loading, setLoading] = useState(true)
+  const loadSeqRef = useRef(0)
 
   useEffect(() => {
-    let mounted = true
+    if (!user) {
+      loadSeqRef.current += 1
+      setStats(EMPTY_STATS)
+      setNotifications([])
+      setActivity([])
+      setUnread(0)
+      setLoading(false)
+      return
+    }
+
     const load = async () => {
+      const seq = ++loadSeqRef.current
       try {
         setLoading(true)
         const [s, n, a, u] = await Promise.all([
@@ -80,7 +96,7 @@ export default function Dashboard() {
           dashboardService.getRecentActivity(5),
           dashboardService.getUnreadCount(),
         ])
-        if (!mounted) return
+        if (seq !== loadSeqRef.current) return
         setStats(s)
         setNotifications(n)
         setActivity(a)
@@ -88,14 +104,24 @@ export default function Dashboard() {
       } catch (err) {
         console.error('Failed to load dashboard:', err)
       } finally {
-        if (mounted) setLoading(false)
+        if (seq === loadSeqRef.current) setLoading(false)
       }
     }
-    load()
+
+    void load()
+    const onInvalidate = () => void load()
+    window.addEventListener(CHILDREN_CHANGED_EVENT, onInvalidate)
+    window.addEventListener(AUTH_LOGIN_EVENT, onInvalidate)
+    window.addEventListener(DATA_INVALIDATE_EVENT, onInvalidate)
+    window.addEventListener('focus', onInvalidate)
     return () => {
-      mounted = false
+      loadSeqRef.current += 1
+      window.removeEventListener(CHILDREN_CHANGED_EVENT, onInvalidate)
+      window.removeEventListener(AUTH_LOGIN_EVENT, onInvalidate)
+      window.removeEventListener(DATA_INVALIDATE_EVENT, onInvalidate)
+      window.removeEventListener('focus', onInvalidate)
     }
-  }, [])
+  }, [user?.id])
 
   const quickActions = useMemo(() => [
     {

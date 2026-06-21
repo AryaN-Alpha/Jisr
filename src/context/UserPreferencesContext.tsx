@@ -4,6 +4,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from 'react'
@@ -56,8 +57,10 @@ const UserPreferencesContext = createContext<UserPreferencesContextValue | null>
 export function UserPreferencesProvider({ children }: { children: ReactNode }) {
   const [preferences, setPreferences] = useState<UserPreferences | null>(null)
   const [loading, setLoading] = useState(true)
+  const refreshSeqRef = useRef(0)
 
   const refresh = useCallback(async () => {
+    const seq = ++refreshSeqRef.current
     const token = readToken()
     if (!token) {
       resetDocumentAccessibility()
@@ -68,13 +71,15 @@ export function UserPreferencesProvider({ children }: { children: ReactNode }) {
     setLoading(true)
     try {
       const prefs = await userPreferencesService.getPreferences()
+      if (seq !== refreshSeqRef.current) return
       setPreferences(prefs)
       applyPreferencesToDocument(prefs)
     } catch {
+      if (seq !== refreshSeqRef.current) return
       resetDocumentAccessibility()
       setPreferences(null)
     } finally {
-      setLoading(false)
+      if (seq === refreshSeqRef.current) setLoading(false)
     }
   }, [])
 
@@ -85,7 +90,10 @@ export function UserPreferencesProvider({ children }: { children: ReactNode }) {
 
   // Refresh when auth state changes (login/logout), not on every page navigation
   useEffect(() => {
-    const onAuthChange = () => void refresh()
+    const onAuthChange = () => {
+      refreshSeqRef.current += 1
+      void refresh()
+    }
     window.addEventListener(AUTH_LOGIN_EVENT, onAuthChange)
     window.addEventListener(AUTH_LOGOUT_EVENT, onAuthChange)
     return () => {
